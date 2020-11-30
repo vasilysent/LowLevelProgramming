@@ -5,13 +5,13 @@ for_read_char: db 0
 section .text
  
 ; Gets exit code in rdi and exit 
-exit: ;OK
+exit: 
     mov rax, 60
     syscall
 ret 
 
 ; Gets a pointer to a null-terminated string in rdi and returns its length in rax
-string_length: ;OK
+string_length: 
     xor rax, rax
     .loop:
         cmp byte [rdi+rax], 0
@@ -21,8 +21,8 @@ string_length: ;OK
     .end:
 ret
 
-; ; Gets a pointer to a null-terminated string in rdi and writes it in stdout
-print_string: ;OK
+; Gets a pointer to a null-terminated string in rdi and writes it in stdout
+print_string: 
     push rax
     push rdi
     call string_length   
@@ -38,17 +38,18 @@ print_string: ;OK
 ret
 
 ; Gets symbol code in rdi and writes it in stdout
-print_char: ;OK
+print_char: 
     mov rax, 1            ; 'write' syscall number
     push rdi
     mov rsi, rsp          ; string address
     mov rdi, 1            ; stdout descriptor
     mov rdx, 1            ; string length in bytes
     syscall               ; 'write' syscall
+    pop rdi
 ret
 
 ; New line (writes 0xA (10) simbol)
-print_newline: ;OK
+print_newline: 
     mov rax, 1            
     mov rdi, 1            
     mov rsi, newline_char 
@@ -62,6 +63,7 @@ print_uint: ;OK
     push rdi
     push rax
     push r10
+    mov r8, rsp
     mov rax, rdi
     mov r10, 10
     dec rsp
@@ -76,6 +78,7 @@ print_uint: ;OK
     jnz  .loop
     mov rdi, rsp
     call print_string
+    mov rsp, r8
     pop r10
     pop rax
     pop rdi
@@ -83,7 +86,7 @@ print_uint: ;OK
 ret
 
 ; Prints 8-byte unsigned integer in decimal format from rdi
-print_int: ;NOT YET
+print_int: 
     cmp rdi, 0
     jge print_uint
     push rdi
@@ -94,8 +97,8 @@ print_int: ;NOT YET
     jmp print_uint
 ret
 
-; Принимает два указателя (rdi and rsi) на нуль-терминированные строки, возвращает 1 если они равны, 0 иначе 
-string_equals: ;OK
+; Gets two pointers (in rdi and rsi) to null-terminated strings, returns 1 if they are equal and 0 otherwise 
+string_equals: 
     push rdi 
     push rsi
     call string_length ; puts 1st string length in r8
@@ -109,79 +112,180 @@ string_equals: ;OK
     pop rsi
     pop rdi
     cmp r8, rax
-    jne no
+    jne .no
     xor rcx, rcx 
     .loop:
         mov al, [rsi + rcx]
         mov dl, [rdi + rcx]
         cmp al, dl
-        jne no
+        jne .no
         inc rcx
         cmp rcx, r8
         jl .loop 
     xor rax, rax
     inc rax
 ret
-    no: 
+    .no: 
         xor rax, rax 
     ret
 
-
 ; Reads one symbol from stdin and returns it. Returns 0 if the stream has ended
-read_char:
+read_char: 
     mov rax, 0 ; read
     mov rdi, 0 ; from stdin
     mov rdx, 1 ; one symbol
     mov rsi, for_read_char
     syscall
     cmp rax, -1
-    je end
+    je .end
     cmp rax, 10
-    je end
+    je .end
+    cmp rax, 0
+    je .end
     mov al, [for_read_char]
 ret
-    end:
-        mov rax, 0
+    .end:
+        xor rax, rax
     ret
  
+; Gets: buffer's address in rdi, and its size rsi
+; Reads in buffer a word from stdin skipping blank symbols in the begining
+; Space - 0x20, tabs - 0x9 and periods - 0xA
+; Sops and returns 0 if the word is too big for the buffer
+; If succeed returns buffer's address in rax, and word length in rdx.
+; Otherwise returns 0 in rax
+; The function should add a null-terminator to the word
 
+read_word: 
+    xor rcx, rcx ;counter
+    dec rsi 
+    
+    .init:
+    push rcx
+    push rdi
+    push rsi
+    call read_char
+    pop rsi
+    pop rdi
+    pop rcx
+    cmp al, 0x20
+    je .init
+    cmp al, 0x9
+    je .init
+    cmp al, 0xA
+    je .init
+    cmp al, 0
+    je .wordend
+    mov [rdi], al
+    inc rcx
+    jmp .inword
 
-; Принимает: адрес начала буфера, размер буфера
-; Читает в буфер слово из stdin, пропуская пробельные символы в начале, .
-; Пробельные символы это пробел 0x20, табуляция 0x9 и перевод строки 0xA.
-; Останавливается и возвращает 0 если слово слишком большое для буфера
-; При успехе возвращает адрес буфера в rax, длину слова в rdx.
-; При неудаче возвращает 0 в rax
-; Эта функция должна дописывать к слову нуль-терминатор
+    .inword:
+    cmp rcx, rsi
+    jg .err
+    push rcx
+    push rdi
+    push rsi
+    call read_char
+    pop rsi
+    pop rdi
+    pop rcx
+    cmp al, 0x20
+    je .wordend
+    cmp al, 0x9
+    je .wordend
+    cmp al, 0xA
+    je .wordend
+    cmp al, 0
+    je .wordend
+    lea rdx, [rdi + rcx]
+    mov [rdx], al
+    inc rcx
+    jmp .inword
 
-read_word:
+    .wordend:
+    lea rdx, [rdi + rcx]
+    mov  al, 0
+    mov [rdx], al
+    mov rax, rdi
+    mov rdx, rcx
     ret
- 
 
-; Принимает указатель на строку, пытается
-; прочитать из её начала беззнаковое число.
-; Возвращает в rax: число, rdx : его длину в символах
-; rdx = 0 если число прочитать не удалось
-parse_uint:
+    .err:
     xor rax, rax
     ret
 
-
-
-
-; Принимает указатель на строку, пытается
-; прочитать из её начала знаковое число.
-; Если есть знак, пробелы между ним и числом не разрешены.
-; Возвращает в rax: число, rdx : его длину в символах (включая знак, если он был) 
-; rdx = 0 если число прочитать не удалось
-parse_int:
+ ; Gets a pointer to a null-terminated string in rdi and tries to read
+; an unsigned integer from its beginning.
+; Returns the number in rax and its length in rdx
+; rdx = 0 in case of error
+parse_uint: 
+    xor rdx, rdx ;counter
     xor rax, rax
-    ret 
+    xor rcx, rcx
+    mov r10, 10
+    mov cl, [rdi]
+    cmp cl, '0'
+    jl .err
+    cmp cl, '9'
+    jg .err
+    sub cl, '0'
+    add rax, rcx
+    inc rdx
+    jmp .innumber
 
-; Принимает указатель на строку rdi, указатель на буфер rsi и длину буфера rdx
-; Копирует строку в буфер
-; Возвращает длину строки если она умещается в буфер, иначе 0 in rax
-string_copy:    ;OK
+    .innumber:
+    mov cl, [rdi + rdx]
+    cmp cl, '0'
+    jl .end
+    cmp cl, '9'
+    jg .end
+    push rdx
+    mul r10  
+    pop rdx
+    sub cl, '0'
+    add rax, rcx
+    inc rdx
+    jmp .innumber
+
+    .err:
+    xor rdx, rdx
+    ret
+
+    .end:
+    ret
+
+; Gets a pointer to a null-terminated string in rdi and tries to read
+; an signed integer from its beginning.
+; If there is a sign, spaces between it and the number are not allowed.
+; Returns the number in rax and its length (including the sign if it is) in rdx 
+; rdx = 0 in case of error
+parse_int: 
+    xor rcx, rcx
+    mov cl, [rdi]
+    cmp cl, '-'
+    je .sign
+    jmp parse_uint
+
+    .sign:
+    inc rdi
+    push rdi
+    call parse_uint
+    pop rdi
+    cmp rdx, 0
+    je .err
+    inc rdx
+    neg rax
+    ret
+
+    .err:
+    xor rdx, rdx
+    ret
+
+; Gets a pointer to a null-terminated string in rdi, buffer's address in rsi and its size rdx
+; Copies the string to the buffer.
+; Returns string's length in rax or 0 if is is too big 
+string_copy:    
     push rdi
     push rsi
     push rdx
@@ -190,8 +294,7 @@ string_copy:    ;OK
     pop rsi
     pop rdi
     cmp rax, rdx 
-    jge notfit
-    ; if fits:
+    jge .notfit
     xor rcx, rcx
     .loop:
         mov al, [rdi + rcx]
@@ -201,6 +304,6 @@ string_copy:    ;OK
     jl  .loop
     mov byte[rsi + rdx + 1], 0 ; adding null-terminator to buffer
 ret
-notfit:
+.notfit:
     xor rax, rax
 ret
